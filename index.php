@@ -1,18 +1,24 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1); 
+ini_set('display_errors', 1);
 header('Content-Type: text/plain; charset=utf-8');
 date_default_timezone_set("Asia/Shanghai");
 
 // 核心配置
 const CONFIG = [
-    'upstream' => ['http://198.16.100.186:8278/', 'http://50.7.92.106:8278/', 'http://50.7.234.10:8278/', 
-                  'http://50.7.220.170:8278/', 'http://67.159.6.34:8278/'],
-    'list_url' => 'https://cdn.jsdelivr.net/gh/hostemail/cdn@main/live/smart.txt',
-    'backup_url' => 'https://tv.alishare.cf/live/smart.txt',
+    'upstream' => [
+        'http://198.16.100.186:8278/',
+        'http://50.7.92.106:8278/',
+        'http://50.7.234.10:8278/',
+        'http://50.7.220.170:8278/',
+        'http://67.159.6.34:8278/'
+    ],
+    'list_url' => 'https://s.jjjj.cf/a/3.txt',
+    'backup_url' => 'https://s.jjjj.cf/a/11.txt',
     'token_ttl' => 2400,
     'cache_ttl' => 3600,
-    'fallback' => 'http://s.jjjj.cf/1.mp4',
+    'fallback' => 'http://vjs.zencdn.net/v/oceans.mp4',
+    'error_url' => 'https://s.jjjj.cf/1.mp4', // 指定错误跳转地址
     'clear_key' => 'leifeng',
     'cache_dir' => __DIR__ . '/cache/',
     'file_cache_ttl' => 3600,
@@ -34,6 +40,12 @@ function getChannelLogo($name) {
     $name = preg_replace(['/\s*_?HD$/i', '/\s*高清$/u', '/\s*$HD$$/i'], '', $name);
     $name = preg_replace('/[^\p{L}\p{N}\-]/u', '', trim(preg_replace('/\s+/u', '', $name), '-'));
     return $name ? "https://epg.v1.mk/logo/$name.png" : "https://cdn.jsdelivr.net/gh/hostemail/cdn@main/images/leifeng.png";
+}
+
+// UA验证函数
+function validateUA() {
+    $ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+    return stripos($ua, 'peng') !== false; // 检查是否包含peng（不区分大小写）
 }
 
 // 缓存处理
@@ -74,12 +86,10 @@ function clearCache() {
 function getChannelList($force = false) {
     $cacheKey = 'smart_channels';
     
-    // 确保缓存目录存在
     if (!is_dir(CONFIG['cache_dir']) && !mkdir(CONFIG['cache_dir'], 0755, true)) {
         error_log("无法创建缓存目录: " . CONFIG['cache_dir']);
     }
     
-    // 尝试获取缓存
     if (!$force) {
         $hasAPCu = extension_loaded('apcu') && ini_get('apcu.enabled');
         if ($hasAPCu && ($data = apcu_fetch($cacheKey))) {
@@ -91,15 +101,12 @@ function getChannelList($force = false) {
         }
     }
     
-    // 获取原始数据
     $raw = fetchUrl(CONFIG['list_url']) ?: fetchUrl(CONFIG['backup_url']);
     if (!$raw) throw new Exception("所有数据源均不可用");
 
     $list = parseChannelData($raw);
-    //$preprocessed = preprocessChannelList($list);
-    $preprocessed = $list;
+    $preprocessed = preprocessChannelList($list);
     
-    // 存储缓存
     if (extension_loaded('apcu') && ini_get('apcu.enabled')) {
         apcu_store($cacheKey, $preprocessed, CONFIG['cache_ttl']);
     } else {
@@ -152,7 +159,6 @@ function parseChannelData($raw) {
         $name = trim($parts[0]);
         $url = trim($parts[1]);
         
-        // 处理频道名称
         if (strpos($name, '|') !== false) {
             $name = trim(explode('|', $name)[1] ?? '');
         }
@@ -160,7 +166,6 @@ function parseChannelData($raw) {
         $name = trim(preg_replace('/\s+/', ' ', $name));
         if (!$name) continue;
         
-        // 提取ID
         $id = null;
         if (preg_match('/\/\/:id=([\w-]+)/', $url, $m) || preg_match('/[?&]id=([^&]+)/', $url, $m)) {
             $id = $m[1];
@@ -187,6 +192,13 @@ function preprocessChannelList($list) {
 
 // 频道请求处理
 function handleChannelRequest() {
+    // UA验证
+    if (!validateUA()) {
+        error_log('UA验证失败 IP: ' . $_SERVER['REMOTE_ADDR'] . ' UA: ' . ($_SERVER['HTTP_USER_AGENT'] ?? '空'));
+        header('Location: ' . CONFIG['error_url']);
+        exit();
+    }
+
     $channelId = $_GET['id'];
     $tsFile = $_GET['ts'] ?? '';
     $token = manageToken();
@@ -241,15 +253,12 @@ function generateM3U8($id, $token) {
 function manageToken() {
     $token = $_GET['token'] ?? '';
     
-    // 验证现有Token
     if (!empty($token) && validateToken($token)) {
         return $token;
     }
     
-    // 生成新Token
     $newToken = bin2hex(random_bytes(16)) . ':' . time();
     
-    // TS请求重定向
     if (isset($_GET['ts'])) {
         header("Location: " . getBaseUrl() . '/' . basename(__FILE__) . '?' . http_build_query([
             'id' => $_GET['id'],
@@ -305,7 +314,7 @@ function GenerateChannelList() {
             foreach ($channels as $chan) {
                 if ($chan['group'] !== $currentGroup) {
                     echo "#EXTINF:-1 group-title=\"{$chan['group']}\", tvg-name=\"====={$chan['group']}=====\", ===== {$chan['group']} =====\n";
-                    echo  CONFIG['fallback']. "\n"; // 虚拟URL用于显示分组
+                    echo  CONFIG['fallback']. "\n";
                     $currentGroup = $chan['group'];
                 }
                 echo "#EXTINF:-1 tvg-id=\"{$chan['id']}\" tvg-name=\"{$chan['name']}\" group-title=\"{$chan['group']}\" tvg-logo=\"{$chan['logo']}\",{$chan['name']}\n";
@@ -333,7 +342,7 @@ function fetchUrl($url, $retry = 3) {
     while ($retry-- > 0) {
         $data = curl_exec($ch);
         if ($data !== false) break;
-        usleep(500000 * (3 - $retry)); // 指数退避
+        usleep(500000 * (3 - $retry));
     }
     
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -354,3 +363,4 @@ try {
     header('HTTP/1.1 503 Service Unavailable');
     exit("系统维护中，请稍后重试\n错误详情：" . $e->getMessage());
 }
+
