@@ -3,9 +3,10 @@
     {
       "name": "SMT直播(python)",
       "type": 3,
-      "url":"https://raw.githubusercontent.com/doube-ba/TVlogo/refs/heads/main/smt.txt",
+      "url":"https://raw.githubusercontent.com/2321387/sim/refs/heads/main/smt.txt",
       "api": "./SMT.py",
       "ext": {}
     }
   ]
 }
+
