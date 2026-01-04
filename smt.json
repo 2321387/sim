@@ -3,12 +3,13 @@
     {
       "name": "SMT直播(python)",
       "type": 3,
-      "url":"https://raw.githubusercontent.com/2321387/sim/refs/heads/main/smt.txt",
+      "url":"./smt.txt",
       "api": "./SMT.py",
       "ext": {}
     }
   ]
 }
+
 
 
 
